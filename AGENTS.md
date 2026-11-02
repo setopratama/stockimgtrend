@@ -204,8 +204,15 @@ stockimgtrend/
 
 ---
 
-## 8. Prinsip Keamanan & Etika Agen
+## 8. Prinsip Keamanan, Etika & Kebijakan Operasional Git
 
 1. **Zero Direct Web Scraping**: Seluruh pencarian web didelegasikan ke Tavily Search API. Tidak ada bot atau browser headless yang menembak langsung ke `stock.adobe.com` dari IP lokal.
 2. **Kepatuhan Hak Cipta & Merek Dagang**: Filter otomatis membuang merek dagang (Apple, iPhone, Tesla, Nike, dll.) dan nama tokoh/selebritas untuk menjaga kepatuhan komersial mikrostock.
 3. **Fokus Nilai Komersial**: Mengutamakan aset yang dicari oleh bisnis, agensi periklanan, dan pembuat konten profesional.
+4. **Protokol Kerahasiaan Kredensial & Secrets (Anti-Bocor ke Repo)**:
+   - Agen **wajib selalu memeriksa ulang** status file (`git status`, verifikasi `.gitignore`) sebelum melakukan staging/commit.
+   - File sensitif seperti `.env`, `.env.local`, file kredensial API key (`TAVILY_API_KEY`, `OPENROUTER_API_KEY`), private keys, serta file database SQLite lokal (`data/*.db`, `*.sqlite`) **MUTLAK TIDAK BOLEH** ter-commit atau naik ke remote repository git.
+   - Hanya file template tanpa rahasia ([.env.example](file:///.env.example)) yang diizinkan untuk di-track oleh git.
+5. **Kebijakan Eksekusi Git Push (Strict User Permission)**:
+   - Agen **DILARANG KERAS** melakukan `git push` secara otomatis atau berinisiatif sendiri tanpa instruksi eksplisit.
+   - Perintah `git push` **HANYA BOLEH dijalankan jika USER SECARA EKSPLISIT MEMINTA** (contoh: *"push ke git"*, *"tolong push"*). Jika user tidak meminta, agen hanya boleh membuat commit lokal jika diperlukan dan berhenti di sana.
