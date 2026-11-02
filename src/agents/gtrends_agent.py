@@ -67,28 +67,36 @@ class GoogleTrendsAgent:
     def analyze_keyword(self, keyword: str) -> Dict[str, Any]:
         """Fetch interest momentum and related rising queries for a keyword."""
         pytrends = self._get_pytrends()
-        trend_score = 75.0
-        growth_percentage = "+180% (Rising Interest)"
+        trend_score = 0.0
+        growth_percentage = "UNVERIFIED (Google Trends unavailable)"
         rising_queries: List[str] = []
         region = "US, Worldwide"
+        timeframe = "today 3-m"
+        recent_average = None
+        baseline_average = None
+        data_quality = "unverified"
 
         if pytrends:
             try:
-                pytrends.build_payload([keyword], cat=0, timeframe="today 3-m", geo="")
+                pytrends.build_payload([keyword], cat=0, timeframe=timeframe, geo="")
                 time.sleep(1)  # Polite delay
                 
                 iot = pytrends.interest_over_time()
                 if not iot.empty and keyword in iot.columns:
-                    recent_vals = iot[keyword].tail(4).tolist()
-                    if len(recent_vals) >= 2 and recent_vals[-2] > 0:
-                        change = ((recent_vals[-1] - recent_vals[-2]) / recent_vals[-2]) * 100
-                        trend_score = max(30.0, min(100.0, float(recent_vals[-1])))
-                        if change > 0:
-                            growth_percentage = f"+{int(change)}% Breakout"
-                        else:
-                            growth_percentage = f"{int(change)}% Steady"
-                    elif len(recent_vals) > 0:
-                        trend_score = float(recent_vals[-1])
+                    values = [float(v) for v in iot[keyword].dropna().tolist()]
+                    recent_vals = values[-4:]
+                    baseline_vals = values[-8:-4]
+                    if recent_vals:
+                        recent_average = round(sum(recent_vals) / len(recent_vals), 1)
+                        trend_score = round(recent_average, 1)
+                        data_quality = "normalized_index"
+                    if baseline_vals:
+                        baseline_average = round(sum(baseline_vals) / len(baseline_vals), 1)
+                    if baseline_average and baseline_average > 0:
+                        change = ((recent_average - baseline_average) / baseline_average) * 100
+                        growth_percentage = f"{change:+.1f}% normalized interest"
+                    elif recent_average is not None:
+                        growth_percentage = "UNVERIFIED (no valid baseline window)"
                 
                 related = pytrends.related_queries()
                 if keyword in related and related[keyword]["rising"] is not None:
@@ -97,8 +105,8 @@ class GoogleTrendsAgent:
                         rising_queries = rising_df["query"].head(5).tolist()
             except Exception as e:
                 logger.info(f"Google Trends live fetch fallback for '{keyword}': {e}")
-                trend_score = 80.0
-                growth_percentage = "+240% Breakout"
+                trend_score = 0.0
+                growth_percentage = "UNVERIFIED (Google Trends request failed)"
                 rising_queries = [
                     f"{keyword} ideas",
                     f"modern {keyword}",
@@ -111,6 +119,13 @@ class GoogleTrendsAgent:
             "trend_score": round(trend_score, 1),
             "growth_percentage": growth_percentage,
             "region": region,
+            "timeframe": timeframe,
+            "comparison_period": "recent 4 observations vs previous 4 observations",
+            "recent_average": recent_average,
+            "baseline_average": baseline_average,
+            "absolute_volume_available": False,
+            "data_quality": data_quality,
+            "volume_note": "Google Trends reports a normalized 0-100 interest index, not absolute search volume.",
             "rising_queries": rising_queries,
             "summary": f"Keyword '{keyword}' menunjukkan tren peningkatan pencarian komersial sebesar {growth_percentage}."
         }

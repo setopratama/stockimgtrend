@@ -113,6 +113,7 @@ def main():
         tavily_api_key=tavily_key,
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
         openrouter_model=args.model or os.getenv("OPENROUTER_MODEL"),
+        reasoning_model=os.getenv("OPENROUTER_REASONING_MODEL"),
         output_dir=args.output_dir
     )
 

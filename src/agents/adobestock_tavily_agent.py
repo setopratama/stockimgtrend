@@ -56,6 +56,7 @@ class AdobeStockTavilyAgent:
         results = response.get("results", [])
         estimated_assets = 0
         snippets: List[str] = []
+        parsed_exact_count = False
 
         for r in results:
             title = r.get("title", "")
@@ -66,10 +67,12 @@ class AdobeStockTavilyAgent:
             count_from_title = self._extract_asset_count_from_text(title)
             if count_from_title > estimated_assets:
                 estimated_assets = count_from_title
+                parsed_exact_count = True
             
             count_from_content = self._extract_asset_count_from_text(content)
             if count_from_content > estimated_assets:
                 estimated_assets = count_from_content
+                parsed_exact_count = True
 
         # Fallback estimation if exact number wasn't explicitly mentioned in snippets
         if estimated_assets == 0:
@@ -79,6 +82,9 @@ class AdobeStockTavilyAgent:
                 estimated_assets = 850   # Low volume / Blue ocean
             else:
                 estimated_assets = 250   # Rare / Unmet demand
+
+        estimate_quality = "observed_snippet" if parsed_exact_count else "heuristic_result_count"
+        confidence = 0.55 if parsed_exact_count else (0.25 if results else 0.10)
 
         # Determine competition level
         if estimated_assets < 1000:
@@ -96,6 +102,12 @@ class AdobeStockTavilyAgent:
             "method": "tavily_site_search",
             "search_query": query,
             "total_results": estimated_assets,
+            "value_type": "ESTIMATE",
+            "catalog_directly_verified": False,
+            "estimate_quality": estimate_quality,
+            "confidence": confidence,
+            "indexed_result_count": len(results),
+            "estimate_note": "Tavily-indexed estimate; not a direct audit of the full Adobe Stock catalog.",
             "competition_level": competition_level,
             "gap_analysis": gap_analysis,
             "sample_snippets": snippets[:3]

@@ -14,6 +14,9 @@ from src.agents.gtrends_agent import GoogleTrendsAgent
 from src.agents.tavily_intel_agent import TavilyIntelAgent
 from src.agents.adobestock_tavily_agent import AdobeStockTavilyAgent
 from src.agents.synthesis_agent import SynthesisAgent
+from src.agents.verification_agent import VerificationAgent
+from src.agents.platform_trends_agent import PlatformTrendsAgent
+from src.agents.buyer_panel_agent import BuyerPanelAgent
 from src.utils.exporter import export_report_to_markdown
 from src.utils.db import (
     save_research_to_db,
@@ -29,15 +32,25 @@ class TrendPipeline:
         tavily_api_key: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
         openrouter_model: Optional[str] = None,
+        reasoning_model: Optional[str] = None,
         output_dir: str = "docs/reports"
     ):
         self.output_dir = output_dir
         self.gtrends_agent = GoogleTrendsAgent()
         self.tavily_agent = TavilyIntelAgent(api_key=tavily_api_key)
         self.adobe_agent = AdobeStockTavilyAgent(api_key=tavily_api_key)
+        self.platform_trends_agent = PlatformTrendsAgent(api_key=tavily_api_key)
         self.synthesis_agent = SynthesisAgent(
             api_key=openrouter_api_key,
             model=openrouter_model
+        )
+        self.verification_agent = VerificationAgent(
+            api_key=openrouter_api_key,
+            model=reasoning_model
+        )
+        self.buyer_panel_agent = BuyerPanelAgent(
+            api_key=openrouter_api_key,
+            model=reasoning_model
         )
 
     def run(
@@ -67,15 +80,34 @@ class TrendPipeline:
         adobe_data = self.adobe_agent.inspect_adobe_stock_gap(keyword)
         report_step("ADOBESTOCK_DONE", "Analisis kompetisi & content gap Adobe Stock selesai.", adobe_data)
 
+        report_step("PLATFORM_TRENDS", "Membandingkan Shutterstock Trends dan Pinterest Trends via Tavily Cloud...", None)
+        platform_trends = self.platform_trends_agent.research(keyword)
+        report_step("PLATFORM_TRENDS_DONE", "Sinyal dua platform visual tambahan berhasil dikumpulkan.", platform_trends)
+
         # Stage 4: Synthesis & AI Creative Brief
         report_step("SYNTHESIS", f"Menghitung Opportunity Score & menghasilkan Creative Brief via OpenRouter...", None)
         result = self.synthesis_agent.synthesize(
             keyword=keyword,
             gtrends_data=gtrends_data,
             tavily_data=tavily_data,
-            adobe_data=adobe_data
+            adobe_data=adobe_data,
+            platform_trends_data=platform_trends
         )
         report_step("SYNTHESIS_DONE", "Opportunity Score & Creative Brief berhasil dihitung.", result)
+
+        # Optional second-model challenge: keeps score deterministic while auditing evidence.
+        report_step("REASONING_AUDIT", "DeepSeek memeriksa periode tren, kualitas estimasi kompetisi, dan forecast demand...", None)
+        result["verification"] = self.verification_agent.verify(result)
+        report_step("REASONING_AUDIT_DONE", "Evidence audit & market-demand forecast selesai.", result["verification"])
+
+        report_step("BUYER_PANEL", "10 buyer persona DeepSeek menilai demand, purchase intent, dan keberatan pembelian...", None)
+        result["buyer_panel"] = self.buyer_panel_agent.evaluate(result)
+        panel = result["buyer_panel"]
+        report_step(
+            "BUYER_PANEL_DONE",
+            f"Buyer panel {panel.get('status', 'UNKNOWN')}: {panel.get('buyer_count', 0)}/10 persona berhasil dianalisis.",
+            panel
+        )
 
         # Stage 5: Export to Markdown
         exported_path = None
@@ -99,7 +131,7 @@ class TrendPipeline:
 
     def autonomous_discovery(
         self,
-        count: int = 3,
+        count: int = 5,
         on_progress: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]] = None
     ) -> List[Dict[str, Any]]:
         """Autonomously start from Google Trends live searches, apply AI Konseptor & Art Director filtering, and evaluate."""
