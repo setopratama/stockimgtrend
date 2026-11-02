@@ -274,14 +274,32 @@ class StockImgTrendApp(App):
         padding: 0 1;
         margin-bottom: 1;
         height: auto;
+        min-width: 0;
     }
+    .compact-row {
+        width: 100%;
+        height: auto;
+        min-width: 0;
+        overflow-x: hidden;
+    }
+    .compact-row > .terminal-panel {
+        width: 1fr;
+        min-width: 0;
+        margin-right: 1;
+        margin-bottom: 1;
+    }
+    .compact-row > .terminal-panel:last-child { margin-right: 0; }
+    .metric-panel { min-height: 6; }
+    .compact-row > .rank-panel { width: 2fr; }
+    .compact-row > .keyword-panel { width: 1fr; }
+    .status-panel { min-height: 5; }
     .terminal-panel.compact { border-left: solid #0891b2; }
     .terminal-panel.positive { border-left: solid #16a34a; }
     .terminal-panel.warning { border-left: solid #d97706; }
     .terminal-panel.ai-panel { border-left: solid #8b5cf6; }
     .metric-copy { height: auto; min-height: 3; }
     #matrix-table {
-        height: 9;
+        height: 8;
         min-height: 6;
         background: #06101b;
         border: solid #155e75;
@@ -297,11 +315,11 @@ class StockImgTrendApp(App):
     }
     #research-feed-panel {
         height: 1fr;
-        min-height: 18;
+        min-height: 20;
     }
     #prompt-display {
-        height: 18;
-        min-height: 12;
+        height: 12;
+        min-height: 8;
         overflow-y: auto;
         color: #e2e8f0;
     }
@@ -312,12 +330,14 @@ class StockImgTrendApp(App):
     .io-label {
         width: 5;
         min-width: 5;
-        height: 1;
+        height: 2;
+        content-align: left middle;
         color: #64748b;
         text-style: dim;
     }
     .io-graph {
-        height: 1;
+        height: 2;
+        content-align: right middle;
         width: 1fr;
         color: #67e8f9;
         background: #030b14;
@@ -328,11 +348,12 @@ class StockImgTrendApp(App):
         overflow-x: hidden;
     }
     #studio-download { color: #86efac; }
-    .io-row { height: 1; width: 100%; }
+    .io-row { height: 2; width: 100%; }
     .io-state {
         width: 8;
         min-width: 8;
-        height: 1;
+        height: 2;
+        content-align: right middle;
         text-align: right;
         color: #64748b;
         text-style: dim;
@@ -361,36 +382,40 @@ class StockImgTrendApp(App):
         with Horizontal(id="body-container"):
             with VerticalScroll(id="left-pane", classes="column-scroll"):
                 yield Static("MARKET INTEL  /  LIVE", classes="section-heading market")
-                with Container(classes="terminal-panel positive", id="card-gt"):
-                    yield Static("TREND MOMENTUM", classes="section-heading", id="lbl-gt")
-                    yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-gt")
-                with Container(classes="terminal-panel compact", id="card-tav"):
-                    yield Static("MARKET DEMAND", classes="section-heading", id="lbl-tav")
-                    yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-tav")
-                with Container(classes="terminal-panel warning", id="card-stock"):
-                    yield Static("SUPPLY GAP  /  ADOBE", classes="section-heading", id="lbl-stock")
-                    yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-stock")
-                with Container(classes="terminal-panel compact"):
-                    yield Static("OPPORTUNITY RANKING", classes="section-heading signal")
-                    yield DataTable(id="matrix-table")
-                with Container(classes="terminal-panel compact"):
-                    yield Static("TRENDING KEYWORDS", classes="section-heading")
-                    yield Static("Rising queries akan tampil setelah riset dimulai.", id="trending-keywords")
+                with Horizontal(classes="compact-row metric-row"):
+                    with Container(classes="terminal-panel positive metric-panel", id="card-gt"):
+                        yield Static("TREND MOMENTUM", classes="section-heading", id="lbl-gt")
+                        yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-gt")
+                    with Container(classes="terminal-panel compact metric-panel", id="card-tav"):
+                        yield Static("MARKET DEMAND", classes="section-heading", id="lbl-tav")
+                        yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-tav")
+                    with Container(classes="terminal-panel warning metric-panel", id="card-stock"):
+                        yield Static("SUPPLY GAP", classes="section-heading", id="lbl-stock")
+                        yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-stock")
+                with Horizontal(classes="compact-row insight-row"):
+                    with Container(classes="terminal-panel compact rank-panel"):
+                        yield Static("OPPORTUNITY RANKING", classes="section-heading signal")
+                        yield DataTable(id="matrix-table")
+                    with Container(classes="terminal-panel compact keyword-panel"):
+                        yield Static("TRENDING KEYWORDS", classes="section-heading")
+                        yield Static("Rising queries akan tampil setelah riset dimulai.", id="trending-keywords")
                 with Container(classes="terminal-panel warning"):
                     yield Static("MARKET SIGNALS", classes="section-heading signal")
                     yield Static("[dim]Cloud-only research guard: active[/]", id="market-signals")
-                with Container(classes="terminal-panel ai-panel"):
-                    yield Static("GENERATION STATUS", classes="section-heading ai")
-                    yield Static("[yellow]IDLE[/]  ·  awaiting creative brief", id="generation-status")
-                with Container(classes="terminal-panel ai-panel"):
-                    yield Static("AGENT ACTIVITY", classes="section-heading ai")
-                    yield Static("Pipeline agents standing by.", id="agent-activity")
-                with Container(classes="terminal-panel ai-panel"):
-                    yield Static("GENERATION HISTORY", classes="section-heading ai")
-                    yield Static("Recent Nanobanana generations appear after completion.", id="generation-history")
-                with Container(classes="terminal-panel ai-panel"):
-                    yield Static("AI PIPELINE STATUS", classes="section-heading ai")
-                    yield Static("[green]●[/] Trends  [green]●[/] Tavily  [green]●[/] Synthesis  [green]●[/] Export", id="pipeline-status")
+                with Horizontal(classes="compact-row status-row"):
+                    with Container(classes="terminal-panel ai-panel status-panel"):
+                        yield Static("GENERATION STATUS", classes="section-heading ai")
+                        yield Static("[yellow]IDLE[/]  ·  awaiting creative brief", id="generation-status")
+                    with Container(classes="terminal-panel ai-panel status-panel"):
+                        yield Static("AGENT ACTIVITY", classes="section-heading ai")
+                        yield Static("Pipeline agents standing by.", id="agent-activity")
+                with Horizontal(classes="compact-row status-row"):
+                    with Container(classes="terminal-panel ai-panel status-panel"):
+                        yield Static("GENERATION HISTORY", classes="section-heading ai")
+                        yield Static("Recent Nanobanana generations appear after completion.", id="generation-history")
+                    with Container(classes="terminal-panel ai-panel status-panel"):
+                        yield Static("AI PIPELINE STATUS", classes="section-heading ai")
+                        yield Static("[green]●[/] Trends  [green]●[/] Tavily  [green]●[/] Synthesis  [green]●[/] Export", id="pipeline-status")
                 with Container(classes="terminal-panel ai-panel"):
                     yield Static("PROMPT WORKSPACE", classes="section-heading ai")
                     yield Static(
@@ -487,8 +512,11 @@ class StockImgTrendApp(App):
 
         def graph(active_points: int, phase: int) -> str:
             """Draw a contiguous btop packet train moving right to left."""
-            active_points = min(point_count, max(1, active_points))
-            # One idle packet uses '.', then activity increases the glyph level.
+            if active_points <= 0:
+                return "\u00a0" * point_count
+            active_points = min(point_count, active_points)
+            # Packet intensity follows the requested sequence. The packet length
+            # grows with activity while its leading edge moves right to left.
             glyph_by_points = {
                 1: flow_chars[1],  # .
                 2: flow_chars[5],  # ⠆
@@ -499,10 +527,10 @@ class StockImgTrendApp(App):
             }
             glyph = glyph_by_points.get(active_points, flow_chars[10])  # ⠇
             # Regular trailing spaces are trimmed by Rich/Textual. NBSP keeps
-            # the track fixed so the packet really starts at the right edge.
+            # the track fixed so the packet starts at the right edge.
             blank = "\u00a0"
             cells = [blank] * point_count
-            # The UI ticks quickly, but the packet train advances slowly.
+            # The UI ticks quickly, but the moving packet advances slowly.
             head = point_count - 1 - (((self.anim_tick // 4) + phase) % point_count)
             for offset in range(active_points):
                 cells[(head - offset) % point_count] = glyph
@@ -515,7 +543,8 @@ class StockImgTrendApp(App):
             download_points = min(point_count, activity)
             state = "ACTIVE"
         else:
-            upload_points = download_points = 1
+            # No fabricated traffic while idle: the track remains empty.
+            upload_points = download_points = 0
             state = "IDLE"
         queue = "[yellow]QUEUE[/] 1 active job" if self.is_busy else "[dim]QUEUE[/] 0 active jobs · ready"
         self.query_one("#studio-upload", Static).update(f"[cyan]{graph(upload_points, 0)}[/]")
