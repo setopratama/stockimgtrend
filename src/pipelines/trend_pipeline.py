@@ -53,6 +53,11 @@ class TrendPipeline:
             model=reasoning_model
         )
 
+    @staticmethod
+    def _normalize_keyword(keyword: str) -> str:
+        """Normalize keyword identity for case/spacing-insensitive DB checks."""
+        return " ".join((keyword or "").strip().lower().split())
+
     def run(
         self,
         keyword: str,
@@ -146,11 +151,63 @@ class TrendPipeline:
         report_step("GTRENDS_SCAN_DONE", f"Berhasil menarik {len(raw_trends)} tren & event terbaru dari Google Trends.", {"trends": raw_trends})
 
         # 2. Check past researches in SQLite to avoid repetition
-        past_researches = get_past_keywords(limit=25)
+        # Read the full history: discovery must never re-run an existing keyword.
+        past_researches = get_past_keywords(limit=10000)
+        researched = {
+            self._normalize_keyword(row.get("keyword", ""))
+            for row in past_researches
+            if row.get("keyword")
+        }
 
         # 3. AI Konseptor & Art Director reasoning & commercial filter
         report_step("ART_DIRECTOR_CONCEPT", "AI Konseptor & Art Director menyaring tren dan merumuskan konsep visual komersial...", None)
-        conceptualized = self.synthesis_agent.filter_and_conceptualize_trends(raw_trends, past_researches, count=count)
+        conceptualized = self.synthesis_agent.filter_and_conceptualize_trends(
+            raw_trends, past_researches, count=max(count * 2, count)
+        )
+
+        unique_concepts: List[Dict[str, Any]] = []
+        skipped_duplicates: List[str] = []
+        seen = set(researched)
+        for concept in conceptualized:
+            candidate = concept.get("commercial_concept_keyword", "")
+            normalized = self._normalize_keyword(candidate)
+            if not normalized:
+                continue
+            if normalized in seen:
+                skipped_duplicates.append(candidate)
+                continue
+            seen.add(normalized)
+            unique_concepts.append(concept)
+
+        # If the Art Director returned duplicates or too few candidates, ask its
+        # existing niche proposer for fresh replacements before running research.
+        if len(unique_concepts) < count:
+            extra_keywords = self.synthesis_agent.propose_market_niches(
+                past_researches, count=max(count * 2, count)
+            )
+            for candidate in extra_keywords:
+                normalized = self._normalize_keyword(candidate)
+                if not normalized or normalized in seen:
+                    if candidate:
+                        skipped_duplicates.append(candidate)
+                    continue
+                seen.add(normalized)
+                unique_concepts.append({
+                    "raw_trend_source": "AI replacement niche",
+                    "commercial_concept_keyword": candidate,
+                    "art_direction_reasoning": "Fresh replacement generated because an equivalent keyword already exists in SQLite history.",
+                    "target_buyer": "Commercial stock image buyers",
+                })
+                if len(unique_concepts) >= count:
+                    break
+
+        conceptualized = unique_concepts[:count]
+        if skipped_duplicates:
+            report_step(
+                "DUPLICATES_SKIPPED",
+                f"Melewati {len(skipped_duplicates)} keyword yang sudah pernah diteliti: {', '.join(skipped_duplicates[:8])}",
+                {"keywords": skipped_duplicates},
+            )
         
         candidate_keywords = [c.get("commercial_concept_keyword") for c in conceptualized if c.get("commercial_concept_keyword")]
         report_step("ART_DIRECTOR_DONE", f"Art Director meloloskan {len(candidate_keywords)} konsep visual bernilai jual: {', '.join(candidate_keywords)}", {"concepts": conceptualized})

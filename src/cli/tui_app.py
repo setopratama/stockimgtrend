@@ -157,14 +157,23 @@ class HistoryModal(ModalScreen[Optional[Dict[str, Any]]]):
     def on_mount(self) -> None:
         table = self.query_one("#history-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("ID", "Keyword", "Total Skor", "Rekomendasi", "Aset Indeks", "Nanobanana", "Buyer Panel", "Waktu Riset")
+        table.add_columns("ID", "Keyword", "Total Skor", "Rekomendasi", "Aset Indeks", "Nanobanana", "Buyer Signal", "Waktu Riset")
         
         self.records = list_recent_researches(limit=35)
         for r in self.records:
             nano = "✔ Siap" if r.get("nanobanana_prompt") else "—"
             try:
                 buyer_panel = json.loads(r.get("raw_json") or "{}").get("buyer_panel", {})
-                buyer = f"{buyer_panel.get('buyer_count', 0)}/10" if buyer_panel else "Review"
+                verdict = buyer_panel.get("panel_verdict", "") if buyer_panel else ""
+                signal_labels = {
+                    "STRONG_BUYER_SIGNAL": "STRONG",
+                    "SELECTIVE_BUYER_SIGNAL": "SELECTIVE",
+                    "WEAK_BUYER_SIGNAL": "WEAK",
+                    "NO_SIGNAL": "NO SIGNAL",
+                }
+                buyer = signal_labels.get(verdict, "REVIEW")
+                if buyer_panel and buyer_panel.get("buyer_count"):
+                    buyer = f"{buyer} {buyer_panel.get('buyer_count')}/10"
             except json.JSONDecodeError:
                 buyer = "Review"
             table.add_row(
@@ -300,16 +309,34 @@ class StockImgTrendApp(App):
         min-height: 3;
     }
     #studio-status { min-height: 2; color: #c4b5fd; }
-    .io-label { color: #64748b; text-style: bold; }
+    .io-label {
+        width: 5;
+        min-width: 5;
+        height: 1;
+        color: #64748b;
+        text-style: dim;
+    }
     .io-graph {
         height: 1;
+        width: 1fr;
         color: #67e8f9;
         background: #030b14;
         padding: 0;
         margin: 0;
-        text-style: bold;
+        text-style: dim;
+        text-align: right;
+        overflow-x: hidden;
     }
     #studio-download { color: #86efac; }
+    .io-row { height: 1; width: 100%; }
+    .io-state {
+        width: 8;
+        min-width: 8;
+        height: 1;
+        text-align: right;
+        color: #64748b;
+        text-style: dim;
+    }
     #studio-queue { color: #fbbf24; min-height: 2; }
     DataTable { background: #06101b; color: #cbd5e1; }
     DataTable > .datatable--header { background: #0e2a3c; color: #67e8f9; }
@@ -375,9 +402,15 @@ class StockImgTrendApp(App):
                 yield Static("AI WORKSTATION  /  CONTROL", classes="section-heading ai")
                 with Container(classes="terminal-panel ai-panel"):
                     yield Static("MODEL I/O TELEMETRY", classes="section-heading ai", id="lbl-nano")
-                    yield Static("[dim]Tekan [a] Auto Discovery, [k] Keyword Research, atau [g] Generate.[/]", id="studio-status")
-                    yield Static("", classes="io-graph", id="studio-upload")
-                    yield Static("", classes="io-graph", id="studio-download")
+                    yield Static("[dim]stream monitor · local pipeline telemetry[/]", id="studio-status")
+                    with Horizontal(classes="io-row"):
+                        yield Static("UP", classes="io-label")
+                        yield Static("", classes="io-graph", id="studio-upload")
+                        yield Static("IDLE", classes="io-state", id="studio-upload-state")
+                    with Horizontal(classes="io-row"):
+                        yield Static("DOWN", classes="io-label")
+                        yield Static("", classes="io-graph", id="studio-download")
+                        yield Static("IDLE", classes="io-state", id="studio-download-state")
                     yield Static("QUEUE  ·  model idle", id="studio-queue")
                 with Container(classes="terminal-panel compact", id="research-feed-panel"):
                     yield Static("RESEARCH FEED  /  PROCESS TIMELINE", classes="section-heading")
@@ -444,17 +477,52 @@ class StockImgTrendApp(App):
 
     def _update_studio_telemetry(self) -> None:
         """Render local btop-style pipeline I/O telemetry without network calls."""
-        width = 34
-        upload_seed = self.anim_tick * 3 + (11 if self.is_busy else 2)
-        download_seed = self.anim_tick * 2 + (19 if self.is_busy else 5)
-        upload_chars = " .·∙⠂⠆⠖⠦⠴⠸⠇"
-        download_chars = " .·∙⠂⠆⠖⠦⠴⠸⠇"
-        upload = "".join(upload_chars[(upload_seed + idx * 3) % len(upload_chars)] for idx in range(width))
-        download = "".join(download_chars[(download_seed + idx * 5) % len(download_chars)] for idx in range(width))
-        state = "ACTIVE" if self.is_busy else "IDLE"
+        upload_widget = self.query_one("#studio-upload", Static)
+        download_widget = self.query_one("#studio-download", Static)
+        widget_width = min(upload_widget.size.width, download_widget.size.width)
+        # Ten-point btop log: each point represents up to 1 MB/s, with a
+        # compact fallback on very narrow terminals.
+        point_count = min(10, max(4, widget_width - 5)) if widget_width else 10
+        flow_chars = " .·∙⠂⠆⠖⠦⠴⠸⠇"
+
+        def graph(active_points: int, phase: int) -> str:
+            """Draw a contiguous btop packet train moving right to left."""
+            active_points = min(point_count, max(1, active_points))
+            # One idle packet uses '.', then activity increases the glyph level.
+            glyph_by_points = {
+                1: flow_chars[1],  # .
+                2: flow_chars[5],  # ⠆
+                3: flow_chars[6],  # ⠖
+                4: flow_chars[7],  # ⠦
+                5: flow_chars[8],  # ⠴
+                6: flow_chars[9],  # ⠸
+            }
+            glyph = glyph_by_points.get(active_points, flow_chars[10])  # ⠇
+            # Regular trailing spaces are trimmed by Rich/Textual. NBSP keeps
+            # the track fixed so the packet really starts at the right edge.
+            blank = "\u00a0"
+            cells = [blank] * point_count
+            # The UI ticks quickly, but the packet train advances slowly.
+            head = point_count - 1 - (((self.anim_tick // 4) + phase) % point_count)
+            for offset in range(active_points):
+                cells[(head - offset) % point_count] = glyph
+            return "".join(cells)
+
+        if self.is_busy:
+            # Activity grows in stable steps: 2 → 3 → ... → 10 packets.
+            activity = 2 + min(8, self.anim_tick // 8)
+            upload_points = max(2, min(point_count, activity - 1))
+            download_points = min(point_count, activity)
+            state = "ACTIVE"
+        else:
+            upload_points = download_points = 1
+            state = "IDLE"
         queue = "[yellow]QUEUE[/] 1 active job" if self.is_busy else "[dim]QUEUE[/] 0 active jobs · ready"
-        self.query_one("#studio-upload", Static).update(f"[cyan]UP [/][cyan]{upload}[/]  {state}")
-        self.query_one("#studio-download", Static).update(f"[green]DOWN[/][green]{download}[/]  {state}")
+        self.query_one("#studio-upload", Static).update(f"[cyan]{graph(upload_points, 0)}[/]")
+        # Both streams are anchored at the right edge, then travel left.
+        self.query_one("#studio-download", Static).update(f"[green]{graph(download_points, 0)}[/]")
+        self.query_one("#studio-upload-state", Static).update(state)
+        self.query_one("#studio-download-state", Static).update(state)
         self.query_one("#studio-queue", Static).update(queue)
 
     def log_msg(self, msg: str):
