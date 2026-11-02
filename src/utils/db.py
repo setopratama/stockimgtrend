@@ -141,12 +141,35 @@ def update_nanobanana_prompt(record_id: int, nanobanana_data: dict, db_path: Pat
     conn.close()
 
 
+def update_buyer_panel(record_id: int, buyer_panel: dict, db_path: Path = DB_PATH):
+    """Persist a buyer-panel review into the existing raw JSON record."""
+    init_db(db_path)
+    conn = get_db_connection(db_path)
+    row = conn.execute("SELECT raw_json FROM trend_researches WHERE id = ?", (record_id,)).fetchone()
+    if not row:
+        conn.close()
+        return
+    try:
+        raw = json.loads(row["raw_json"] or "{}")
+    except json.JSONDecodeError:
+        raw = {}
+    raw["buyer_panel"] = buyer_panel
+    with conn:
+        conn.execute(
+            "UPDATE trend_researches SET raw_json = ? WHERE id = ?",
+            (json.dumps(raw, ensure_ascii=False), record_id),
+        )
+    conn.close()
+
+
 def list_recent_researches(limit: int = 15, db_path: Path = DB_PATH) -> List[Dict[str, Any]]:
     """Retrieve recent research records from SQLite."""
     init_db(db_path)
     conn = get_db_connection(db_path)
     cursor = conn.execute("""
-        SELECT id, keyword, created_at, total_score, recommendation, indexed_assets, title_suggestion, report_file, nanobanana_prompt
+        SELECT id, keyword, created_at, total_score, recommendation, recommendation_label,
+               trend_score, market_score, stock_gap_score, indexed_assets,
+               title_suggestion, report_file, nanobanana_prompt, raw_json
         FROM trend_researches
         ORDER BY created_at DESC
         LIMIT ?

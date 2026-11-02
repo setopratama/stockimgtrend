@@ -14,6 +14,9 @@ from src.agents.gtrends_agent import GoogleTrendsAgent
 from src.agents.tavily_intel_agent import TavilyIntelAgent
 from src.agents.adobestock_tavily_agent import AdobeStockTavilyAgent
 from src.agents.synthesis_agent import SynthesisAgent
+from src.agents.verification_agent import VerificationAgent
+from src.agents.platform_trends_agent import PlatformTrendsAgent
+from src.agents.buyer_panel_agent import BuyerPanelAgent
 from src.utils.exporter import export_report_to_markdown
 from src.utils.db import (
     save_research_to_db,
@@ -29,16 +32,31 @@ class TrendPipeline:
         tavily_api_key: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
         openrouter_model: Optional[str] = None,
+        reasoning_model: Optional[str] = None,
         output_dir: str = "docs/reports"
     ):
         self.output_dir = output_dir
         self.gtrends_agent = GoogleTrendsAgent()
         self.tavily_agent = TavilyIntelAgent(api_key=tavily_api_key)
         self.adobe_agent = AdobeStockTavilyAgent(api_key=tavily_api_key)
+        self.platform_trends_agent = PlatformTrendsAgent(api_key=tavily_api_key)
         self.synthesis_agent = SynthesisAgent(
             api_key=openrouter_api_key,
             model=openrouter_model
         )
+        self.verification_agent = VerificationAgent(
+            api_key=openrouter_api_key,
+            model=reasoning_model
+        )
+        self.buyer_panel_agent = BuyerPanelAgent(
+            api_key=openrouter_api_key,
+            model=reasoning_model
+        )
+
+    @staticmethod
+    def _normalize_keyword(keyword: str) -> str:
+        """Normalize keyword identity for case/spacing-insensitive DB checks."""
+        return " ".join((keyword or "").strip().lower().split())
 
     def run(
         self,
@@ -67,15 +85,34 @@ class TrendPipeline:
         adobe_data = self.adobe_agent.inspect_adobe_stock_gap(keyword)
         report_step("ADOBESTOCK_DONE", "Analisis kompetisi & content gap Adobe Stock selesai.", adobe_data)
 
+        report_step("PLATFORM_TRENDS", "Membandingkan Shutterstock Trends dan Pinterest Trends via Tavily Cloud...", None)
+        platform_trends = self.platform_trends_agent.research(keyword)
+        report_step("PLATFORM_TRENDS_DONE", "Sinyal dua platform visual tambahan berhasil dikumpulkan.", platform_trends)
+
         # Stage 4: Synthesis & AI Creative Brief
         report_step("SYNTHESIS", f"Menghitung Opportunity Score & menghasilkan Creative Brief via OpenRouter...", None)
         result = self.synthesis_agent.synthesize(
             keyword=keyword,
             gtrends_data=gtrends_data,
             tavily_data=tavily_data,
-            adobe_data=adobe_data
+            adobe_data=adobe_data,
+            platform_trends_data=platform_trends
         )
         report_step("SYNTHESIS_DONE", "Opportunity Score & Creative Brief berhasil dihitung.", result)
+
+        # Optional second-model challenge: keeps score deterministic while auditing evidence.
+        report_step("REASONING_AUDIT", "DeepSeek memeriksa periode tren, kualitas estimasi kompetisi, dan forecast demand...", None)
+        result["verification"] = self.verification_agent.verify(result)
+        report_step("REASONING_AUDIT_DONE", "Evidence audit & market-demand forecast selesai.", result["verification"])
+
+        report_step("BUYER_PANEL", "10 buyer persona DeepSeek menilai demand, purchase intent, dan keberatan pembelian...", None)
+        result["buyer_panel"] = self.buyer_panel_agent.evaluate(result)
+        panel = result["buyer_panel"]
+        report_step(
+            "BUYER_PANEL_DONE",
+            f"Buyer panel {panel.get('status', 'UNKNOWN')}: {panel.get('buyer_count', 0)}/10 persona berhasil dianalisis.",
+            panel
+        )
 
         # Stage 5: Export to Markdown
         exported_path = None
@@ -99,7 +136,7 @@ class TrendPipeline:
 
     def autonomous_discovery(
         self,
-        count: int = 3,
+        count: int = 5,
         on_progress: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]] = None
     ) -> List[Dict[str, Any]]:
         """Autonomously start from Google Trends live searches, apply AI Konseptor & Art Director filtering, and evaluate."""
@@ -114,11 +151,63 @@ class TrendPipeline:
         report_step("GTRENDS_SCAN_DONE", f"Berhasil menarik {len(raw_trends)} tren & event terbaru dari Google Trends.", {"trends": raw_trends})
 
         # 2. Check past researches in SQLite to avoid repetition
-        past_researches = get_past_keywords(limit=25)
+        # Read the full history: discovery must never re-run an existing keyword.
+        past_researches = get_past_keywords(limit=10000)
+        researched = {
+            self._normalize_keyword(row.get("keyword", ""))
+            for row in past_researches
+            if row.get("keyword")
+        }
 
         # 3. AI Konseptor & Art Director reasoning & commercial filter
         report_step("ART_DIRECTOR_CONCEPT", "AI Konseptor & Art Director menyaring tren dan merumuskan konsep visual komersial...", None)
-        conceptualized = self.synthesis_agent.filter_and_conceptualize_trends(raw_trends, past_researches, count=count)
+        conceptualized = self.synthesis_agent.filter_and_conceptualize_trends(
+            raw_trends, past_researches, count=max(count * 2, count)
+        )
+
+        unique_concepts: List[Dict[str, Any]] = []
+        skipped_duplicates: List[str] = []
+        seen = set(researched)
+        for concept in conceptualized:
+            candidate = concept.get("commercial_concept_keyword", "")
+            normalized = self._normalize_keyword(candidate)
+            if not normalized:
+                continue
+            if normalized in seen:
+                skipped_duplicates.append(candidate)
+                continue
+            seen.add(normalized)
+            unique_concepts.append(concept)
+
+        # If the Art Director returned duplicates or too few candidates, ask its
+        # existing niche proposer for fresh replacements before running research.
+        if len(unique_concepts) < count:
+            extra_keywords = self.synthesis_agent.propose_market_niches(
+                past_researches, count=max(count * 2, count)
+            )
+            for candidate in extra_keywords:
+                normalized = self._normalize_keyword(candidate)
+                if not normalized or normalized in seen:
+                    if candidate:
+                        skipped_duplicates.append(candidate)
+                    continue
+                seen.add(normalized)
+                unique_concepts.append({
+                    "raw_trend_source": "AI replacement niche",
+                    "commercial_concept_keyword": candidate,
+                    "art_direction_reasoning": "Fresh replacement generated because an equivalent keyword already exists in SQLite history.",
+                    "target_buyer": "Commercial stock image buyers",
+                })
+                if len(unique_concepts) >= count:
+                    break
+
+        conceptualized = unique_concepts[:count]
+        if skipped_duplicates:
+            report_step(
+                "DUPLICATES_SKIPPED",
+                f"Melewati {len(skipped_duplicates)} keyword yang sudah pernah diteliti: {', '.join(skipped_duplicates[:8])}",
+                {"keywords": skipped_duplicates},
+            )
         
         candidate_keywords = [c.get("commercial_concept_keyword") for c in conceptualized if c.get("commercial_concept_keyword")]
         report_step("ART_DIRECTOR_DONE", f"Art Director meloloskan {len(candidate_keywords)} konsep visual bernilai jual: {', '.join(candidate_keywords)}", {"concepts": conceptualized})

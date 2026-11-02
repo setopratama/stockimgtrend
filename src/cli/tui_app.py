@@ -24,7 +24,7 @@ from typing import Optional, Dict, Any, List
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Header,
@@ -38,7 +38,7 @@ from textual.widgets import (
 from rich.text import Text
 
 from src.pipelines.trend_pipeline import TrendPipeline
-from src.utils.db import list_recent_researches
+from src.utils.db import list_recent_researches, update_buyer_panel
 
 # Animation frame sets for btop-style telemetry
 BRAILLE_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -106,13 +106,13 @@ class KeywordModal(ModalScreen[Optional[str]]):
 
 
 # --- MODAL SCREEN: KEYBOARD-DRIVEN SQLITE HISTORY VIEWER ---
-class HistoryModal(ModalScreen[None]):
+class HistoryModal(ModalScreen[Optional[Dict[str, Any]]]):
     """Pure keyboard-driven viewer displaying research records stored in SQLite."""
 
     BINDINGS = [
         Binding("escape", "dismiss_modal", "Tutup", priority=True),
         Binding("q", "dismiss_modal", "Tutup", priority=True),
-        Binding("enter", "dismiss_modal", "Pilih", priority=True),
+        Binding("enter", "select_record", "Review Buyer", priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -157,11 +157,25 @@ class HistoryModal(ModalScreen[None]):
     def on_mount(self) -> None:
         table = self.query_one("#history-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("ID", "Keyword", "Total Skor", "Rekomendasi", "Aset Indeks", "Nanobanana", "Waktu Riset")
+        table.add_columns("ID", "Keyword", "Total Skor", "Rekomendasi", "Aset Indeks", "Nanobanana", "Buyer Signal", "Waktu Riset")
         
-        records = list_recent_researches(limit=35)
-        for r in records:
+        self.records = list_recent_researches(limit=35)
+        for r in self.records:
             nano = "✔ Siap" if r.get("nanobanana_prompt") else "—"
+            try:
+                buyer_panel = json.loads(r.get("raw_json") or "{}").get("buyer_panel", {})
+                verdict = buyer_panel.get("panel_verdict", "") if buyer_panel else ""
+                signal_labels = {
+                    "STRONG_BUYER_SIGNAL": "STRONG",
+                    "SELECTIVE_BUYER_SIGNAL": "SELECTIVE",
+                    "WEAK_BUYER_SIGNAL": "WEAK",
+                    "NO_SIGNAL": "NO SIGNAL",
+                }
+                buyer = signal_labels.get(verdict, "REVIEW")
+                if buyer_panel and buyer_panel.get("buyer_count"):
+                    buyer = f"{buyer} {buyer_panel.get('buyer_count')}/10"
+            except json.JSONDecodeError:
+                buyer = "Review"
             table.add_row(
                 str(r.get("id", "")),
                 str(r.get("keyword", "")),
@@ -169,12 +183,18 @@ class HistoryModal(ModalScreen[None]):
                 str(r.get("recommendation", "")),
                 f"{r.get('indexed_assets', 0):,}",
                 nano,
+                buyer,
                 str(r.get("created_at", ""))[:16]
             )
         table.focus()
 
     def action_dismiss_modal(self) -> None:
         self.dismiss(None)
+
+    def action_select_record(self) -> None:
+        table = self.query_one("#history-table", DataTable)
+        if 0 <= table.cursor_row < len(self.records):
+            self.dismiss(self.records[table.cursor_row])
 
 
 # --- MAIN FULLSCREEN TUI APPLICATION ---
@@ -195,74 +215,131 @@ class StockImgTrendApp(App):
     ]
 
     CSS = """
+    /* Bloomberg-inspired surface: dense, calm, and information-first. */
     Screen {
-        background: #090d16;
-        color: #e2e8f0;
+        background: #050b14;
+        color: #cbd5e1;
+    }
+    Header {
+        background: #071321;
+        color: #67e8f9;
+        height: 1;
+    }
+    Footer {
+        background: #071321;
+        color: #94a3b8;
     }
     #top-status-bar {
-        height: 3;
-        background: #0f172a;
-        border-bottom: heavy #1e293b;
+        height: 2;
+        background: #0a1726;
+        border-bottom: solid #164e63;
         padding: 0 1;
         content-align: left middle;
+        text-overflow: ellipsis;
     }
     #body-container {
         height: 1fr;
+        width: 100%;
+    }
+    #left-pane, #right-pane {
+        width: 50%;
+        min-width: 0;
+        height: 100%;
+        padding: 0 1;
+        scrollbar-color: #155e75;
+        scrollbar-background: #071321;
+        overflow-x: hidden;
     }
     #left-pane {
-        width: 48%;
-        height: 100%;
-        border-right: heavy #1e293b;
-        padding: 0 1;
+        border-right: solid #1e3a5f;
     }
-    #right-pane {
-        width: 52%;
-        height: 100%;
-        padding: 0 1;
+    .column-scroll {
+        height: 1fr;
+        overflow-y: auto;
+        scrollbar-color: #155e75;
     }
-    .btop-card {
-        background: #0f172a;
-        border: round #38bdf8;
-        padding: 1;
+    .section-heading {
+        height: 1;
+        color: #67e8f9;
+        text-style: bold;
+        padding: 0 1;
+        background: #0b1b2b;
+    }
+    .section-heading.market { color: #86efac; }
+    .section-heading.signal { color: #fbbf24; }
+    .section-heading.ai { color: #c4b5fd; }
+    .terminal-panel {
+        background: #081421;
+        border: solid #1e4866;
+        padding: 0 1;
         margin-bottom: 1;
         height: auto;
     }
-    #card-gt {
-        border: round #10b981;
-    }
-    #card-tav {
-        border: round #06b6d4;
-    }
-    #card-stock {
-        border: round #ec4899;
-    }
-    #card-nano {
-        background: #0f172a;
-        border: round #eab308;
-        padding: 1;
-        height: 1fr;
-        margin-top: 1;
-    }
-    .card-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
+    .terminal-panel.compact { border-left: solid #0891b2; }
+    .terminal-panel.positive { border-left: solid #16a34a; }
+    .terminal-panel.warning { border-left: solid #d97706; }
+    .terminal-panel.ai-panel { border-left: solid #8b5cf6; }
+    .metric-copy { height: auto; min-height: 3; }
     #matrix-table {
         height: 9;
+        min-height: 6;
+        background: #06101b;
+        border: solid #155e75;
         margin-bottom: 1;
-        background: #090d16;
-        border: round #3b82f6;
     }
     #activity-log {
-        height: 9;
-        background: #020617;
-        border: solid #1e293b;
+        height: 1fr;
+        min-height: 10;
+        background: #030811;
+        border: solid #1e3a5f;
         padding: 0 1;
+        scrollbar-color: #0e7490;
+    }
+    #research-feed-panel {
+        height: 1fr;
+        min-height: 18;
     }
     #prompt-display {
-        height: 1fr;
-        overflow-y: scroll;
+        height: 18;
+        min-height: 12;
+        overflow-y: auto;
+        color: #e2e8f0;
     }
+    #generation-history, #pipeline-status, #agent-activity {
+        min-height: 3;
+    }
+    #studio-status { min-height: 2; color: #c4b5fd; }
+    .io-label {
+        width: 5;
+        min-width: 5;
+        height: 1;
+        color: #64748b;
+        text-style: dim;
+    }
+    .io-graph {
+        height: 1;
+        width: 1fr;
+        color: #67e8f9;
+        background: #030b14;
+        padding: 0;
+        margin: 0;
+        text-style: dim;
+        text-align: right;
+        overflow-x: hidden;
+    }
+    #studio-download { color: #86efac; }
+    .io-row { height: 1; width: 100%; }
+    .io-state {
+        width: 8;
+        min-width: 8;
+        height: 1;
+        text-align: right;
+        color: #64748b;
+        text-style: dim;
+    }
+    #studio-queue { color: #fbbf24; min-height: 2; }
+    DataTable { background: #06101b; color: #cbd5e1; }
+    DataTable > .datatable--header { background: #0e2a3c; color: #67e8f9; }
     """
 
     def __init__(self, pipeline: TrendPipeline, initial_keyword: Optional[str] = None):
@@ -274,6 +351,7 @@ class StockImgTrendApp(App):
         self.current_stage = "IDLE"
         self.current_keyword = initial_keyword or "—"
         self.anim_tick = 0
+        self.ranking_has_placeholder = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -281,41 +359,77 @@ class StockImgTrendApp(App):
         yield Static(id="top-status-bar")
 
         with Horizontal(id="body-container"):
-            # LEFT PANE: 3 Modular btop Telemetry Cards + Activity Log
-            with Vertical(id="left-pane"):
-                with Container(classes="btop-card", id="card-gt"):
-                    yield Label("┌─ 📈 GOOGLE TRENDS DISCOVERY ───────────────────────┐", classes="card-title", id="lbl-gt")
-                    yield Static("Menunggu perintah riset...", id="content-gt")
-
-                with Container(classes="btop-card", id="card-tav"):
-                    yield Label("┌─ 🌐 TAVILY MARKET INTEL (Cloud Proxy) ─────────────┐", classes="card-title", id="lbl-tav")
-                    yield Static("Menunggu perintah riset...", id="content-tav")
-
-                with Container(classes="btop-card", id="card-stock"):
-                    yield Label("┌─ 📦 ADOBE STOCK COMPETITION GAP (via Tavily) ──────┐", classes="card-title", id="lbl-stock")
-                    yield Static("Menunggu perintah riset...", id="content-stock")
-
-                yield Label("┌─ 💻 REAL-TIME SYSTEM ACTIVITY LOG ──────────────────┐", classes="card-title", id="lbl-log")
-                yield RichLog(id="activity-log", highlight=True, markup=True)
-
-            # RIGHT PANE: Opportunity Score Matrix & Nanobanana Studio Card
-            with Vertical(id="right-pane"):
-                yield Label("┌─ 🎯 OPPORTUNITY SCORE MATRIX / LEADERBOARD ─────────┐", classes="card-title", id="lbl-matrix")
-                yield DataTable(id="matrix-table")
-
-                with Container(id="card-nano"):
-                    yield Label("┌─ 🍌 NANOBANANA STUDIO: Master Prompt & Tema Kuat ───┐", classes="card-title", id="lbl-nano")
+            with VerticalScroll(id="left-pane", classes="column-scroll"):
+                yield Static("MARKET INTEL  /  LIVE", classes="section-heading market")
+                with Container(classes="terminal-panel positive", id="card-gt"):
+                    yield Static("TREND MOMENTUM", classes="section-heading", id="lbl-gt")
+                    yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-gt")
+                with Container(classes="terminal-panel compact", id="card-tav"):
+                    yield Static("MARKET DEMAND", classes="section-heading", id="lbl-tav")
+                    yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-tav")
+                with Container(classes="terminal-panel warning", id="card-stock"):
+                    yield Static("SUPPLY GAP  /  ADOBE", classes="section-heading", id="lbl-stock")
+                    yield Static("Menunggu perintah riset...", classes="metric-copy", id="content-stock")
+                with Container(classes="terminal-panel compact"):
+                    yield Static("OPPORTUNITY RANKING", classes="section-heading signal")
+                    yield DataTable(id="matrix-table")
+                with Container(classes="terminal-panel compact"):
+                    yield Static("TRENDING KEYWORDS", classes="section-heading")
+                    yield Static("Rising queries akan tampil setelah riset dimulai.", id="trending-keywords")
+                with Container(classes="terminal-panel warning"):
+                    yield Static("MARKET SIGNALS", classes="section-heading signal")
+                    yield Static("[dim]Cloud-only research guard: active[/]", id="market-signals")
+                with Container(classes="terminal-panel ai-panel"):
+                    yield Static("GENERATION STATUS", classes="section-heading ai")
+                    yield Static("[yellow]IDLE[/]  ·  awaiting creative brief", id="generation-status")
+                with Container(classes="terminal-panel ai-panel"):
+                    yield Static("AGENT ACTIVITY", classes="section-heading ai")
+                    yield Static("Pipeline agents standing by.", id="agent-activity")
+                with Container(classes="terminal-panel ai-panel"):
+                    yield Static("GENERATION HISTORY", classes="section-heading ai")
+                    yield Static("Recent Nanobanana generations appear after completion.", id="generation-history")
+                with Container(classes="terminal-panel ai-panel"):
+                    yield Static("AI PIPELINE STATUS", classes="section-heading ai")
+                    yield Static("[green]●[/] Trends  [green]●[/] Tavily  [green]●[/] Synthesis  [green]●[/] Export", id="pipeline-status")
+                with Container(classes="terminal-panel ai-panel"):
+                    yield Static("PROMPT WORKSPACE", classes="section-heading ai")
                     yield Static(
-                        "[dim]Tekan [bold cyan][a][/] untuk Auto Discovery atau [bold yellow][g][/] untuk meracik prompt Nanobanana dari riset aktif.[/]",
+                        "[dim]Belum ada prompt aktif. Hasil prompt master, negative prompt, audit, dan tags akan tampil di sini.[/]",
                         id="prompt-display"
                     )
+
+            with VerticalScroll(id="right-pane", classes="column-scroll"):
+                yield Static("AI WORKSTATION  /  CONTROL", classes="section-heading ai")
+                with Container(classes="terminal-panel ai-panel"):
+                    yield Static("MODEL I/O TELEMETRY", classes="section-heading ai", id="lbl-nano")
+                    yield Static("[dim]stream monitor · local pipeline telemetry[/]", id="studio-status")
+                    with Horizontal(classes="io-row"):
+                        yield Static("UP", classes="io-label")
+                        yield Static("", classes="io-graph", id="studio-upload")
+                        yield Static("IDLE", classes="io-state", id="studio-upload-state")
+                    with Horizontal(classes="io-row"):
+                        yield Static("DOWN", classes="io-label")
+                        yield Static("", classes="io-graph", id="studio-download")
+                        yield Static("IDLE", classes="io-state", id="studio-download-state")
+                    yield Static("QUEUE  ·  model idle", id="studio-queue")
+                with Container(classes="terminal-panel compact", id="research-feed-panel"):
+                    yield Static("RESEARCH FEED  /  PROCESS TIMELINE", classes="section-heading")
+                    yield RichLog(id="activity-log", highlight=True, markup=True, wrap=True)
 
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#matrix-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("Target Topic", "Trends", "Market", "Gap", "TOTAL", "Verdict")
+        table.add_columns("TOPIC", "TR", "MK", "GAP", "SCORE", "VIEW")
+
+        # Keep the ranking useful on startup by restoring recent persisted research.
+        recent = list_recent_researches(limit=8)
+        for record in sorted(recent, key=lambda item: item.get("total_score") or 0, reverse=True):
+            self._add_opportunity_record(record)
+        if not recent:
+            table.add_row("NO RESEARCH YET", "—", "—", "—", "—", "PRESS A / K")
+            self.ranking_has_placeholder = True
         
         log = self.query_one("#activity-log", RichLog)
         log.write("[bold green]✔ stockimgtrend btop TUI initialized![/]")
@@ -351,21 +465,65 @@ class StockImgTrendApp(App):
             )
         self.query_one("#top-status-bar", Static).update(status_markup)
 
-        # Pulse active panel title with wave animation when working
+        # Keep animation confined to telemetry text; panel geometry stays stable.
         if self.is_busy:
-            if "GTRENDS" in self.current_stage:
-                self.query_one("#lbl-gt", Label).update(f"┌─ 📈 GOOGLE TRENDS [{wave} FETCHING {audio}] ─────────────┐")
-            elif "TAVILY" in self.current_stage:
-                self.query_one("#lbl-tav", Label).update(f"┌─ 🌐 TAVILY MARKET INTEL [{wave} CRAWLING {audio}] ──────┐")
-            elif "ADOBE" in self.current_stage:
-                self.query_one("#lbl-stock", Label).update(f"┌─ 📦 ADOBE STOCK GAP [{wave} CHECKING CLOUD {audio}] ────┐")
-            elif "SYNTHESIS" in self.current_stage or "NANO" in self.current_stage:
-                self.query_one("#lbl-nano", Label).update(f"┌─ 🍌 NANOBANANA STUDIO [{wave} PROMPT TUNING {audio}] ────┐")
+            self.query_one("#generation-status", Static).update(
+                f"[yellow]{spin} PROCESSING[/]  ·  [cyan]{self.current_stage}[/]  ·  activity {audio}"
+            )
+            self.query_one("#agent-activity", Static).update(
+                f"[cyan]{wave}[/] {self.current_stage}  ·  target [white]{self.current_keyword}[/]"
+            )
+        self._update_studio_telemetry()
+
+    def _update_studio_telemetry(self) -> None:
+        """Render local btop-style pipeline I/O telemetry without network calls."""
+        upload_widget = self.query_one("#studio-upload", Static)
+        download_widget = self.query_one("#studio-download", Static)
+        widget_width = min(upload_widget.size.width, download_widget.size.width)
+        # Ten-point btop log: each point represents up to 1 MB/s, with a
+        # compact fallback on very narrow terminals.
+        point_count = min(10, max(4, widget_width - 5)) if widget_width else 10
+        flow_chars = " .·∙⠂⠆⠖⠦⠴⠸⠇"
+
+        def graph(active_points: int, phase: int) -> str:
+            """Draw a contiguous btop packet train moving right to left."""
+            active_points = min(point_count, max(1, active_points))
+            # One idle packet uses '.', then activity increases the glyph level.
+            glyph_by_points = {
+                1: flow_chars[1],  # .
+                2: flow_chars[5],  # ⠆
+                3: flow_chars[6],  # ⠖
+                4: flow_chars[7],  # ⠦
+                5: flow_chars[8],  # ⠴
+                6: flow_chars[9],  # ⠸
+            }
+            glyph = glyph_by_points.get(active_points, flow_chars[10])  # ⠇
+            # Regular trailing spaces are trimmed by Rich/Textual. NBSP keeps
+            # the track fixed so the packet really starts at the right edge.
+            blank = "\u00a0"
+            cells = [blank] * point_count
+            # The UI ticks quickly, but the packet train advances slowly.
+            head = point_count - 1 - (((self.anim_tick // 4) + phase) % point_count)
+            for offset in range(active_points):
+                cells[(head - offset) % point_count] = glyph
+            return "".join(cells)
+
+        if self.is_busy:
+            # Activity grows in stable steps: 2 → 3 → ... → 10 packets.
+            activity = 2 + min(8, self.anim_tick // 8)
+            upload_points = max(2, min(point_count, activity - 1))
+            download_points = min(point_count, activity)
+            state = "ACTIVE"
         else:
-            self.query_one("#lbl-gt", Label).update("┌─ 📈 GOOGLE TRENDS DISCOVERY ───────────────────────┐")
-            self.query_one("#lbl-tav", Label).update("┌─ 🌐 TAVILY MARKET INTEL (Cloud Proxy) ─────────────┐")
-            self.query_one("#lbl-stock", Label).update("┌─ 📦 ADOBE STOCK COMPETITION GAP (via Tavily) ──────┐")
-            self.query_one("#lbl-nano", Label).update("┌─ 🍌 NANOBANANA STUDIO: Master Prompt & Tema Kuat ───┐")
+            upload_points = download_points = 1
+            state = "IDLE"
+        queue = "[yellow]QUEUE[/] 1 active job" if self.is_busy else "[dim]QUEUE[/] 0 active jobs · ready"
+        self.query_one("#studio-upload", Static).update(f"[cyan]{graph(upload_points, 0)}[/]")
+        # Both streams are anchored at the right edge, then travel left.
+        self.query_one("#studio-download", Static).update(f"[green]{graph(download_points, 0)}[/]")
+        self.query_one("#studio-upload-state", Static).update(state)
+        self.query_one("#studio-download-state", Static).update(state)
+        self.query_one("#studio-queue", Static).update(queue)
 
     def log_msg(self, msg: str):
         log = self.query_one("#activity-log", RichLog)
@@ -404,7 +562,11 @@ class StockImgTrendApp(App):
 
     def action_show_history(self) -> None:
         """Shortcut [h]: Display SQLite database history modal."""
-        self.push_screen(HistoryModal())
+        def handle_review(record: Optional[Dict[str, Any]]) -> None:
+            if record:
+                self.start_buyer_review_worker(record)
+
+        self.push_screen(HistoryModal(), handle_review)
 
     def action_clear_log(self) -> None:
         """Shortcut [c]: Clear activity log."""
@@ -434,7 +596,7 @@ class StockImgTrendApp(App):
 
     def _handle_pipeline_progress(self, stage: str, msg: str, data: Optional[Dict[str, Any]]):
         self.current_stage = stage
-        self.log_msg(msg)
+        self.log_msg(f"[bold cyan]{stage}[/]  {msg}")
 
         if stage == "GTRENDS_DONE" and data:
             gt_text = (
@@ -444,6 +606,14 @@ class StockImgTrendApp(App):
                 f"[bold green]Rising   :[/] [dim]{', '.join(data.get('rising_queries', [])[:3])}[/]"
             )
             self.query_one("#content-gt", Static).update(gt_text)
+            self.query_one("#trending-keywords", Static).update(
+                "\n".join(f"[green]↑[/] {item}" for item in data.get("rising_queries", [])[:6]) or "No rising query returned."
+            )
+            self.log_msg(
+                f"[green]TREND SNAPSHOT[/] velocity={data.get('trend_score', 0):.0f}%  "
+                f"growth={data.get('growth_percentage', 'n/a')}  "
+                f"rising={', '.join(data.get('rising_queries', [])[:3]) or 'none'}"
+            )
 
         elif stage == "TAVILY_DONE" and data:
             summary = data.get("summary", "")[:130]
@@ -453,6 +623,16 @@ class StockImgTrendApp(App):
                 f"[bold cyan]Insights :[/] [dim]{summary}...[/]"
             )
             self.query_one("#content-tav", Static).update(tav_text)
+            self.query_one("#market-signals", Static).update(
+                f"[green]●[/] Buyer relevance [bold cyan]{data.get('tavily_score', 0):.0f}[/]/100\n"
+                f"[cyan]●[/] Industry references [bold white]{data.get('total_references', 0)}[/]\n"
+                "[green]●[/] Tavily cloud proxy active"
+            )
+            self.log_msg(
+                f"[cyan]MARKET SNAPSHOT[/] relevance={data.get('tavily_score', 0):.0f}/100  "
+                f"references={data.get('total_references', 0)}  "
+                f"summary={summary}"
+            )
 
         elif stage == "ADOBESTOCK_DONE" and data:
             stock_text = (
@@ -461,27 +641,75 @@ class StockImgTrendApp(App):
                 f"[bold magenta]Keamanan     :[/] [bold green]100% Zero Local Scraping via Tavily[/]"
             )
             self.query_one("#content-stock", Static).update(stock_text)
+            self.query_one("#market-signals", Static).update(
+                f"[yellow]◆[/] Supply saturation: [bold yellow]{data.get('competition_level', 'unknown')}[/]\n"
+                f"[green]●[/] Indexed assets: [bold white]~{data.get('total_results', 0):,}[/]\n"
+                "[green]●[/] Zero local scraping"
+            )
+            self.log_msg(
+                f"[yellow]SUPPLY SNAPSHOT[/] indexed=~{data.get('total_results', 0):,}  "
+                f"saturation={data.get('competition_level', 'unknown')}  "
+                "source=site-search via Tavily"
+            )
+
+        self.query_one("#pipeline-status", Static).update(
+            f"[green]●[/] Trends  [green]●[/] Tavily  [yellow]◐[/] {stage}  [dim]○[/] Export"
+        )
 
     def _handle_analysis_complete(self, result: Dict[str, Any]):
         self.active_result = result
+        self._add_opportunity_row(result)
         sc = result.get("scoring", {})
-        bk = sc.get("breakdown", {})
-        table = self.query_one("#matrix-table", DataTable)
-        
-        star = "⭐ " if sc.get("total_score", 0) >= 75 else "✨ "
-        table.add_row(
-            result.get("topic", ""),
-            f"{bk.get('trend_score', 0):.1f}",
-            f"{bk.get('tavily_score', 0):.1f}",
-            f"{bk.get('stock_gap_score', 0):.1f}",
-            f"[bold green]{star}{sc.get('total_score', 0):.1f}[/]",
-            sc.get("recommendation", "")
+        self.query_one("#generation-history", Static).update(
+            f"[green]LATEST[/]  {result.get('topic', self.current_keyword)}\n"
+            f"Score [bold cyan]{sc.get('total_score', 0):.1f}[/]/100  ·  {sc.get('recommendation', '—')}\n"
+            f"Export [dim]{result.get('exported_file', 'pending')}[/]"
         )
         self.log_msg(f"[bold green]✔ Riset selesai! Laporan: {result.get('exported_file', '')}[/]")
         self.notify(f"Analisis selesai: Skor {sc.get('total_score')}/100", title="stockimgtrend")
         
         # Automatically generate Nanobanana master prompt
         self.start_nanobanana_worker()
+
+    def _add_opportunity_row(self, result: Dict[str, Any]) -> None:
+        """Render one scored research result in the compact opportunity ranking."""
+        table = self.query_one("#matrix-table", DataTable)
+        if self.ranking_has_placeholder:
+            table.clear()
+            self.ranking_has_placeholder = False
+        sc = result.get("scoring", {})
+        breakdown = sc.get("breakdown", {})
+        total = float(sc.get("total_score", 0) or 0)
+        star = "⭐ " if total >= 75 else "✨ "
+        table.add_row(
+            str(result.get("topic", result.get("keyword", "—")))[:28],
+            f"{float(breakdown.get('trend_score', 0) or 0):.1f}",
+            f"{float(breakdown.get('tavily_score', 0) or 0):.1f}",
+            f"{float(breakdown.get('stock_gap_score', 0) or 0):.1f}",
+            f"[bold green]{star}{total:.1f}[/]",
+            str(sc.get("recommendation", "—"))[:12]
+        )
+
+    def _add_opportunity_record(self, record: Dict[str, Any]) -> None:
+        """Render a persisted SQLite record in the opportunity ranking."""
+        total = float(record.get("total_score", 0) or 0)
+        star = "⭐ " if total >= 75 else "✨ "
+        self.query_one("#matrix-table", DataTable).add_row(
+            str(record.get("keyword", "—"))[:28],
+            f"{float(record.get('trend_score', 0) or 0):.1f}",
+            f"{float(record.get('market_score', 0) or 0):.1f}",
+            f"{float(record.get('stock_gap_score', 0) or 0):.1f}",
+            f"[bold green]{star}{total:.1f}[/]",
+            str(record.get("recommendation", "—"))[:12]
+        )
+
+    def _render_opportunity_rows(self, results: List[Dict[str, Any]]) -> None:
+        """Replace the ranking with the latest autonomous discovery candidates."""
+        table = self.query_one("#matrix-table", DataTable)
+        table.clear()
+        self.ranking_has_placeholder = False
+        for result in results[:3]:
+            self._add_opportunity_row(result)
 
     @work(thread=True)
     def start_auto_discovery_worker(self):
@@ -493,10 +721,11 @@ class StockImgTrendApp(App):
             self.app.call_from_thread(self._handle_pipeline_progress, stage, msg, data)
 
         try:
-            results = self.pipeline.autonomous_discovery(count=3, on_progress=on_prog)
+            results = self.pipeline.autonomous_discovery(count=5, on_progress=on_prog)
             if results:
                 best = results[0]
                 self.active_result = best
+                self.app.call_from_thread(self._render_opportunity_rows, results)
                 self.app.call_from_thread(self.log_msg, f"[bold green]🏆 Rekomendasi Teratas: \"{best.get('topic')}\" (Skor: {best.get('scoring', {}).get('total_score')})[/]")
                 nano_data = self.pipeline.generate_nanobanana_master(best)
                 self.app.call_from_thread(self._render_nanobanana_result, nano_data)
@@ -522,6 +751,45 @@ class StockImgTrendApp(App):
         finally:
             self.is_busy = False
             self.current_stage = "IDLE"
+
+    @work(thread=True)
+    def start_buyer_review_worker(self, record: Dict[str, Any]):
+        """Review an existing history record with the ten-buyer DeepSeek panel."""
+        if self.is_busy:
+            self.app.call_from_thread(self.notify, "Tunggu proses aktif selesai sebelum review buyer.", severity="warning")
+            return
+        try:
+            research = json.loads(record.get("raw_json") or "{}")
+        except json.JSONDecodeError:
+            research = {"topic": record.get("keyword", ""), "scoring": {}}
+        self.is_busy = True
+        self.current_keyword = research.get("topic", record.get("keyword", "—"))
+        self.current_stage = "BUYER_PANEL_HISTORY"
+        self.app.call_from_thread(self.log_msg, f"[bold yellow]Buyer review dimulai:[/] {self.current_keyword}")
+        try:
+            panel = self.pipeline.buyer_panel_agent.evaluate(research)
+            update_buyer_panel(record.get("id"), panel)
+            self.app.call_from_thread(self._render_buyer_review, panel, self.current_keyword)
+        except Exception as exc:
+            self.app.call_from_thread(self.log_msg, f"[bold red]Buyer review error:[/] {exc}")
+        finally:
+            self.is_busy = False
+            self.current_stage = "IDLE"
+
+    def _render_buyer_review(self, panel: Dict[str, Any], topic: str) -> None:
+        count = panel.get("buyer_count", 0)
+        verdict = panel.get("panel_verdict", "UNVERIFIED")
+        self.query_one("#generation-history", Static).update(
+            f"[green]BUYER REVIEW[/]  {topic}\n"
+            f"Personas [bold cyan]{count}/10[/]  ·  verdict [bold yellow]{verdict}[/]\n"
+            f"Demand [bold cyan]{panel.get('average_demand_score', 0)}[/]  ·  intent [bold cyan]{panel.get('average_purchase_intent', 0)}[/]\n"
+            f"[dim]{panel.get('error', panel.get('panel_summary', 'Review tersimpan ke SQLite.'))}[/]"
+        )
+        self.log_msg(
+            f"[bold green]✔ Buyer review selesai:[/] {count}/10 persona · {verdict} · "
+            f"demand={panel.get('average_demand_score', 0)} intent={panel.get('average_purchase_intent', 0)}"
+        )
+        self.notify(f"Buyer review: {count}/10 persona", title="stockimgtrend")
 
     def _render_nanobanana_result(self, nano_data: Dict[str, Any]):
         title = nano_data.get("theme_title", "Nanobanana Theme")
@@ -554,6 +822,13 @@ class StockImgTrendApp(App):
             f"[bold blue]📋 50 KEYWORDS SIAP COPY-PASTE:[/] [dim white]{tags}[/]"
         )
         self.query_one("#prompt-display", Static).update(rendered_text)
+        self.query_one("#studio-status", Static).update(
+            f"[green]● READY[/]  ·  [bold white]{title}[/]  ·  audit {audit.get('verdict_status', 'APPROVED') if audit else 'PENDING'}"
+        )
+        self.query_one("#generation-status", Static).update("[green]● COMPLETE[/]  ·  prompt saved to SQLite")
+        self.query_one("#pipeline-status", Static).update(
+            "[green]●[/] Trends  [green]●[/] Tavily  [green]●[/] Synthesis  [green]●[/] Export  [green]●[/] SQLite"
+        )
 
 
 def launch_tui(keyword: Optional[str] = None):
@@ -562,6 +837,7 @@ def launch_tui(keyword: Optional[str] = None):
         tavily_api_key=os.getenv("TAVILY_API_KEY"),
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
         openrouter_model=os.getenv("OPENROUTER_MODEL"),
+        reasoning_model=os.getenv("OPENROUTER_REASONING_MODEL"),
         output_dir="docs/reports"
     )
     app = StockImgTrendApp(pipeline=pipeline, initial_keyword=keyword)

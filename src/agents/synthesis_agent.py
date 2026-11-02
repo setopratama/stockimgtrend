@@ -107,8 +107,20 @@ Keluarkan HANYA JSON array valid tanpa markdown (tanpa ```json):
                 "commercial_concept_keyword": "renewable solar energy technician tablet field",
                 "art_direction_reasoning": "Transisi energi bersih adalah tema komersial berkelanjutan yang dicari oleh industri ESG dan teknologi hijau.",
                 "target_buyer": "Energy Companies, ESG Investors, Tech Journals"
+            },
+            {
+                "raw_trend_source": "Workplace Technology",
+                "commercial_concept_keyword": "inclusive hybrid team collaboration workspace",
+                "art_direction_reasoning": "Perusahaan membutuhkan visual autentik untuk komunikasi hybrid work, kolaborasi lintas budaya, dan representasi tenaga kerja modern.",
+                "target_buyer": "SaaS, HR Technology, Corporate Communications"
+            },
+            {
+                "raw_trend_source": "Climate Adaptation",
+                "commercial_concept_keyword": "urban climate resilience community infrastructure",
+                "art_direction_reasoning": "Kebutuhan komunikasi ESG dan investasi infrastruktur menciptakan demand untuk visual adaptasi iklim yang solutif dan tidak sensasional.",
+                "target_buyer": "ESG, Government, Sustainability Agencies"
             }
-        ]
+        ][:count]
 
     def propose_market_niches(self, past_researches: List[Dict[str, Any]], count: int = 4) -> List[str]:
         """Proactively brainstorm fresh high-opportunity visual niches."""
@@ -158,12 +170,14 @@ Keluarkan HANYA format JSON list string tanpa markdown:
         keyword: str,
         gtrends_data: Dict[str, Any],
         tavily_data: Dict[str, Any],
-        adobe_data: Dict[str, Any]
+        adobe_data: Dict[str, Any],
+        platform_trends_data: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Combine all research metrics, compute opportunity scores, and produce a creative brief."""
         trend_score = gtrends_data.get("trend_score", 75.0)
         tavily_score = tavily_data.get("tavily_score", 80.0)
         asset_count = adobe_data.get("total_results", 3000)
+        platform_trends_data = platform_trends_data or {}
 
         # Compute quantitative Opportunity Score
         scoring_result = calculate_opportunity_score(
@@ -181,6 +195,7 @@ Data Riset:
 - Tavily Market Intel: {tavily_data.get('summary', '')}
 - Adobe Stock Kompetisi: {adobe_data.get('competition_level', '')} (~{asset_count:,} aset terindeks)
 - Content Gap: {adobe_data.get('gap_analysis', '')}
+- Shutterstock Trends / Pinterest Trends evidence: {json.dumps(platform_trends_data, ensure_ascii=False, default=str)[:5000]}
 - Total Opportunity Score: {scoring_result['total_score']}/100 ({scoring_result['recommendation_label']})
 
 Tugasmu:
@@ -229,7 +244,8 @@ Buatlah Creative Brief komersial siap pakai dalam format JSON murni tanpa markdo
             "sources": {
                 "google_trends": gtrends_data,
                 "tavily_intel": tavily_data,
-                "adobe_stock_tracker": adobe_data
+                "adobe_stock_tracker": adobe_data,
+                "platform_trends": platform_trends_data
             },
             "actionable_brief": creative_brief
         }
