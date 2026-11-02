@@ -1,8 +1,8 @@
 # stockimgtrend 🍌📊
 
-Sistem AI Multi-Agent & Dashboard TUI interaktif bergaya `btop` untuk riset tren visual stock image (Adobe Stock) memanfaatkan **Google Trends**, **Tavily Search API (Cloud Proxy)**, dan **OpenRouter AI**.
+Sistem AI Multi-Agent & **Terminal User Interface (TUI) Dashboard Real-Time** untuk riset tren visual stock image (khususnya Adobe Stock) memanfaatkan **Google Trends Live Scan**, **Tavily Search API (Cloud Proxy)**, dan **OpenRouter AI**.
 
-Dilengkapi dengan generator **1 Master Prompt & Tema Kuat** yang dioptimalkan khusus untuk engine **Nanobanana**, serta ekspor otomatis ke Markdown dan SQLite.
+Aplikasi ini menghadirkan antarmuka visual modular layar penuh berbasis keyboard (*keyboard-driven*) dengan animasi telemetri data langsung, audit kualitas otomatis oleh **AI Senior Art Director**, serta generator **1 Master Prompt & Tema Kuat** yang dioptimalkan khusus untuk engine **Nanobanana**.
 
 ---
 
@@ -15,18 +15,18 @@ Cukup jalankan script launcher:
 ```
 
 ### Navigasi Shortcut Keyboard di Dashboard:
-- **`[a]`**: **Auto Discovery** (AI mengecek SQLite, merumuskan 3 niche baru 2026, dan menganalisis live).
-- **`[k]`**: **Ketik Keyword** (Popup minimalis untuk memasukkan kata kunci kustom).
+- **`[a]`**: **Auto Discovery** (Live scan Google Trends -> AI Konseptor & Art Director filter -> Cek supply gap Adobe Stock -> Racik Master Prompt).
+- **`[k]`**: **Ketik Keyword** (Dialog input minimalis untuk menganalisis topik visual spesifik).
 - **`[g]`**: **Gen Nanobanana** (Meracik Master Prompt, Negative Prompt, dan 50 Tags dari riset aktif).
-- **`[h]`**: **Riwayat (DB)** (Popup viewer tabel database SQLite).
-- **`[c]`**: **Clear Log** (Bersihkan activity log).
-- **`[q]`**: **Keluar**.
+- **`[h]`**: **Riwayat (DB)** (Viewer tabel database SQLite dengan navigasi keyboard).
+- **`[c]`**: **Clear Log** (Membersihkan panel aktivitas sistem).
+- **`[q]`**: **Keluar** (Menutup dashboard dengan rapi).
 
 ---
 
 ## 🛠️ Parameter Tambahan (Opsional)
 
-Script `start.sh` mendukung seluruh argumen CLI:
+Script `start.sh` juga mendukung parameter langsung dari terminal:
 
 ```bash
 # Riset keyword tertentu langsung
@@ -43,6 +43,6 @@ Script `start.sh` mendukung seluruh argumen CLI:
 
 ## 🔒 Keamanan IP (Zero Local Scraping)
 
-Seluruh riset pasar dan pelacakan hasil Adobe Stock dilakukan **100% melalui Tavily Search API di cloud**. Komputer Anda tidak melakukan scraping langsung ke `stock.adobe.com`, sehingga IP Anda aman dari rate limit, CAPTCHA, atau IP ban.
+Seluruh riset pasar dan pelacakan hasil Adobe Stock dilakukan **100% melalui Tavily Search API di cloud**. Komputer Anda tidak melakukan scraping langsung ke `stock.adobe.com`, sehingga IP Anda sepenuhnya aman dari risiko rate limit, CAPTCHA, atau IP ban.
 
 Dokumentasi lengkap arsitektur multi-agent dapat dibaca di [AGENTS.md](AGENTS.md).

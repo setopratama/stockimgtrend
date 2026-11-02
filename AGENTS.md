@@ -1,6 +1,6 @@
 # AGENTS.md — Stock Image Trend Research Pipeline (Tavily-Powered)
 
-Dokumen ini mendefinisikan arsitektur agen, alur kerja (pipeline), spesifikasi tools, tampilan CLI (btop-style TUI), dan panduan operasional untuk agen AI dalam melakukan riset otomatis tren visual stock image (khususnya Adobe Stock) memanfaatkan **Google Trends** dan **Tavily Search API**.
+Dokumen ini mendefinisikan arsitektur agen, alur kerja (pipeline), spesifikasi tools, tampilan Terminal User Interface (TUI Dashboard), dan panduan operasional untuk agen AI dalam melakukan riset otomatis tren visual stock image (khususnya Adobe Stock) memanfaatkan **Google Trends** dan **Tavily Search API**.
 
 > [!IMPORTANT]
 > **Arsitektur Zero Local Scraping**: Seluruh riset web dan pelacakan Adobe Stock dilakukan **100% melalui Tavily Search API di cloud**. Komputer lokal pengguna tidak melakukan web scraping langsung ke `stock.adobe.com`, sehingga **IP pengguna sepenuhnya aman dari risiko IP ban, rate-limit, atau CAPTCHA**.
@@ -13,7 +13,7 @@ Proyek **stockimgtrend** bertujuan untuk:
 1. **Mendeteksi Tren Visual Lebih Awal**: Mengidentifikasi topik, keyword, dan konsep visual yang sedang melonjak (breakout/rising) via Google Trends.
 2. **Memperkaya Konteks Riset Pasar**: Menggunakan Tavily Search API untuk mencari artikel industri kreatif, tren musiman, dan kebutuhan visual buyer komersial terkini.
 3. **Validasi Kompetisi Adobe Stock via Tavily Cloud**: Memeriksa estimasi volume hasil, keberadaan aset terlaris, dan celah pasar (*supply vs demand gap*) di Adobe Stock dengan query terarah melalui Tavily (`site:stock.adobe.com`).
-4. **Tampilan CLI Interaktif Bergaya `btop`**: Menyajikan live dashboard di terminal saat agen menganalisis data, memantau proses scraping, dan menampilkan metrik performa secara real-time.
+4. **Tampilan TUI Dashboard Real-Time**: Menyajikan live dashboard visual di terminal dengan telemetri animasi saat agen menganalisis data dan menampilkan metrik performa secara real-time.
 5. **Autonomous Market Discovery & Inisiatif Tren**: Mesin mengecek riwayat di SQLite, berinisiatif mengajukan kandidat niche komersial baru 2026 yang belum jenuh, dan menyajikan *Opportunity Leaderboard*.
 6. **Generator Master Prompt & Tema Kuat Nanobanana**: Meracik 1 Master Prompt fotorealistis/sinematik, negative prompt, dan 50 tag siap generate di Nanobanana dan siap upload ke Adobe Stock.
 7. **Penyimpanan SQLite & Ekspor Markdown**: Menyimpan riwayat riset ke `data/stockimgtrend.db` dan mengekspor laporan komprehensif ke `docs/reports/*.md`.
@@ -68,9 +68,9 @@ flowchart TD
 
 ---
 
-## 3. Desain Antarmuka CLI (btop-style TUI Dashboard)
+## 3. Desain Antarmuka Terminal (Interactive TUI Dashboard)
 
-Sistem menggunakan **Textual & Rich** di terminal untuk menghadirkan antarmuka visual terpadu layar penuh (*fullscreen interactive dashboard*) menyerupai `btop` dengan navigasi shortcut keyboard:
+Sistem menggunakan **Textual & Rich** di terminal untuk menghadirkan antarmuka visual terpadu layar penuh (*keyboard-driven fullscreen dashboard*) dengan animasi telemetri data dan navigasi shortcut keyboard:
 
 ```text
 ┌─ stockimgtrend ── [STATUS: ANALYZING] ────────────────────────── [TIME: 09:55:00] ─┐
@@ -190,7 +190,7 @@ stockimgtrend/
     │   └── synthesis_agent.py        # Scorer & pembuat rekomendasi brief
     ├── cli/
     │   ├── __init__.py
-    │   ├── tui_app.py                # Fullscreen Textual TUI Dashboard bergaya btop
+    │   ├── tui_app.py                # Fullscreen Interactive TUI Dashboard (Textual)
     │   └── dashboard.py              # Rich CLI components
     ├── pipelines/
     │   ├── __init__.py
